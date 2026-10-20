@@ -1,0 +1,23 @@
+# İşletim Sistemi ve IDE Dosyaları
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Ortam Değişkenleri
+.env
+.env.*
+
+# Bağımlılık ve Derleme Klasörleri
+node_modules/
+dist/
+build/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+bin/
+obj/
+target/
+*.log
