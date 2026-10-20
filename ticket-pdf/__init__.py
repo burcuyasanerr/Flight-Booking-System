@@ -23,6 +23,7 @@ try:
         generate_ticket_pdf,
         generate_ticket_pdf_bytes,
     )
+    from .service import TicketService
 except ImportError:
     from models import (
         CabinClass,
@@ -43,6 +44,7 @@ except ImportError:
         generate_ticket_pdf,
         generate_ticket_pdf_bytes,
     )
+    from service import TicketService
 
 __all__ = [
     "CabinClass",
@@ -58,4 +60,5 @@ __all__ = [
     "TicketPDFBuilder",
     "generate_ticket_pdf",
     "generate_ticket_pdf_bytes",
+    "TicketService",
 ]
