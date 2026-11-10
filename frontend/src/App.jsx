@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
-import { Plane, Search, Calendar, User, CheckCircle2, BookmarkCheck, PhoneCall, HelpCircle, Compass, ShieldCheck, Route, Star, Globe, Award, Users, ArrowRightLeft, MapPin } from 'lucide-react';
+import { Plane, Search, Calendar, User, CheckCircle2, BookmarkCheck, PhoneCall, HelpCircle, Compass, ShieldCheck, Route, Star, Globe, Award, Users, ArrowRightLeft, MapPin, LogIn, X, Lock, Mail, UserCheck, LogOut } from 'lucide-react';
 import { mockAirports, mockFlights } from './mock';
 import SeatSelection from './SeatSelection';
 
@@ -24,6 +24,15 @@ export default function App() {
   // PNR Sorgulama State
   const [searchPnr, setSearchPnr] = useState('');
   const [pnrResult, setPnrResult] = useState(null);
+
+  // Auth / Modal State
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authTab, setAuthTab] = useState('login');
+  const [authName, setAuthName] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [user, setUser] = useState(null);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -99,6 +108,40 @@ export default function App() {
     }
   };
 
+  const handleAuthSubmit = (e) => {
+    e.preventDefault();
+    setAuthError('');
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(authEmail)) {
+      setAuthError('Lütfen geçerli bir e-posta adresi giriniz.');
+      return;
+    }
+
+    if (authPassword.length < 6) {
+      setAuthError('Şifreniz en az 6 karakter olmalıdır.');
+      return;
+    }
+
+    if (authTab === 'register') {
+      const nameTrimmed = authName.trim();
+      const nameParts = nameTrimmed.split(/\s+/);
+      if (nameParts.length < 2) {
+        setAuthError('Lütfen ad ve soyadınızı eksiksiz giriniz.');
+        return;
+      }
+      setUser({ name: nameTrimmed, email: authEmail });
+    } else {
+      setUser({ name: authEmail, email: authEmail });
+    }
+
+    setIsAuthOpen(false);
+    setAuthEmail('');
+    setAuthPassword('');
+    setAuthName('');
+    setAuthError('');
+  };
+
   const flightRoutes = (hasSearched && searchResults.length > 0 ? searchResults : mockFlights).map(flight => {
     const orig = mockAirports.find(a => a.id === flight.origin_airport_id);
     const dest = mockAirports.find(a => a.id === flight.destination_airport_id);
@@ -127,7 +170,7 @@ export default function App() {
           </div>
         </div>
 
-        <nav style={{ display: 'flex', gap: '8px', height: '100%' }}>
+        <nav style={{ display: 'flex', gap: '8px', height: '100%', alignItems: 'center' }}>
           {[
             { id: 'search', label: 'Uçuş Arama', icon: Search },
             { id: 'pnr', label: 'Rezervasyonlarım (PNR)', icon: BookmarkCheck },
@@ -144,7 +187,7 @@ export default function App() {
                   background: 'transparent',
                   border: 'none',
                   color: isActive ? '#60a5fa' : '#cbd5e1',
-                  padding: '0 20px',
+                  padding: '0 16px',
                   height: '100%',
                   fontSize: '14px',
                   fontWeight: isActive ? '700' : '600',
@@ -159,13 +202,199 @@ export default function App() {
               </button>
             );
           })}
+
+          {/* KULLANICI ALANI */}
+          {user ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '12px', backgroundColor: 'rgba(255,255,255,0.06)', padding: '6px 14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ backgroundColor: '#2563eb', padding: '6px', borderRadius: '50%', display: 'flex' }}>
+                <UserCheck size={14} color="white" />
+              </div>
+              <span style={{ fontSize: '13px', fontWeight: '600', color: '#f8fafc' }}>
+                {user.email}
+              </span>
+              <button
+                onClick={() => setUser(null)}
+                title="Çıkış Yap"
+                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', display: 'flex', marginLeft: '4px' }}
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setAuthError(''); setIsAuthOpen(true); }}
+              style={{
+                backgroundColor: '#2563eb',
+                color: 'white',
+                border: 'none',
+                padding: '9px 18px',
+                borderRadius: '12px',
+                fontSize: '13px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginLeft: '12px',
+                boxShadow: '0 4px 12px rgba(37,99,235,0.3)'
+              }}
+            >
+              <LogIn size={15} /> Giriş Yap / Kayıt Ol
+            </button>
+          )}
         </nav>
       </header>
+
+      {/* AUTHENTICATION (GİRİŞ YAP / KAYIT OL) MODAL */}
+      {isAuthOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 2000
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '24px',
+            width: '100%',
+            maxWidth: '440px',
+            padding: '32px',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            position: 'relative'
+          }}>
+            <button
+              onClick={() => setIsAuthOpen(false)}
+              style={{ position: 'absolute', top: '20px', right: '20px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}
+            >
+              <X size={20} />
+            </button>
+
+            {/* TAB SEÇİMİ (GİRİŞ / KAYIT) */}
+            <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '14px', marginBottom: '24px' }}>
+              <button
+                type="button"
+                onClick={() => { setAuthTab('login'); setAuthError(''); }}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: authTab === 'login' ? '#ffffff' : 'transparent',
+                  color: authTab === 'login' ? '#2563eb' : '#64748b',
+                  fontWeight: '700',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  boxShadow: authTab === 'login' ? '0 2px 8px rgba(0,0,0,0.06)' : 'none'
+                }}
+              >
+                Giriş Yap
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthTab('register'); setAuthError(''); }}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: authTab === 'register' ? '#ffffff' : 'transparent',
+                  color: authTab === 'register' ? '#2563eb' : '#64748b',
+                  fontWeight: '700',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  boxShadow: authTab === 'register' ? '0 2px 8px rgba(0,0,0,0.06)' : 'none'
+                }}
+              >
+                Kayıt Ol
+              </button>
+            </div>
+
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: '0 0 6px 0', fontSize: '22px', fontWeight: '800', color: '#0f172a' }}>
+                {authTab === 'login' ? 'SkyWings Hesabınıza Giriş Yapın' : 'Yeni Hesabınızı Oluşturun'}
+              </h3>
+              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                {authTab === 'login' ? 'Uçuşlarınızı yönetmek için e-postanızla giriş yapın.' : 'Ayrıcalıklı uçuş fırsatlarından yararlanmak için kaydolun.'}
+              </p>
+            </div>
+
+            {/* HATA MESAJI */}
+            {authError && (
+              <div style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '12px', borderRadius: '12px', marginBottom: '16px', fontSize: '13px', border: '1px solid #fecaca', fontWeight: '600', textAlign: 'center' }}>
+                {authError}
+              </div>
+            )}
+
+            <form onSubmit={handleAuthSubmit} style={{ display: 'grid', gap: '16px' }}>
+              {authTab === 'register' && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', letterSpacing: '0.5px' }}>AD SOYAD</label>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <User size={16} color="#94a3b8" style={{ position: 'absolute', left: '14px' }} />
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ad ve Soyad"
+                      value={authName}
+                      onChange={(e) => setAuthName(e.target.value)}
+                      style={{ width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', backgroundColor: '#f8fafc' }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', letterSpacing: '0.5px' }}>E-POSTA ADRESİ</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <Mail size={16} color="#94a3b8" style={{ position: 'absolute', left: '14px' }} />
+                  <input
+                    type="email"
+                    required
+                    placeholder="ornek@email.com"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    style={{ width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', backgroundColor: '#f8fafc' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', letterSpacing: '0.5px' }}>ŞİFRE</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <Lock size={16} color="#94a3b8" style={{ position: 'absolute', left: '14px' }} />
+                  <input
+                    type="password"
+                    required
+                    placeholder="En az 6 karakter"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    style={{ width: '100%', padding: '12px 12px 12px 40px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', backgroundColor: '#f8fafc' }}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', padding: '14px', borderRadius: '12px', fontWeight: '700', fontSize: '15px', cursor: 'pointer', marginTop: '6px', boxShadow: '0 8px 16px rgba(37,99,235,0.25)' }}
+              >
+                {authTab === 'login' ? 'Giriş Yap' : 'Kayıt Ol ve Başla'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 1. UÇUŞ ARAMA SEKMESİ */}
       {activeTab === 'search' && (
         <>
-          {/* BANNER — GÖRSEL UÇAK KANADI GÖRÜNECEK ŞEKİLDE SAĞA HİZALANDI */}
+          {/* BANNER */}
           <div style={{
             width: '100%',
             background: 'linear-gradient(to bottom, rgba(15, 23, 42, 0.35), rgba(15, 23, 42, 0.75)), url("https://images.unsplash.com/photo-1436491865332-7a61a109cc05?q=80&w=1920&auto=format&fit=crop")',
@@ -233,6 +462,7 @@ export default function App() {
                       <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>Ödenen Toplam Tutar</span>
                       <div style={{ fontSize: '26px', fontWeight: '800', color: '#1e293b' }}>{bookingSummary.price} <span style={{ fontSize: '15px', fontWeight: '500' }}>TL</span></div>
                     </div>
+                    
                     <button 
                       onClick={() => {
                         setBookingSummary(null);
