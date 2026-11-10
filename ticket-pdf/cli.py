@@ -90,6 +90,7 @@ def main():
     )
 
     parser.add_argument("--demo", action="store_true", help="Örnek verilerle demo bilet PDF'i oluşturur.")
+    parser.add_argument("--pnr", type=str, metavar="PNR", help="Veritabanından PNR koduna göre bileti çekip PDF oluşturur (Örn: TK19AB).")
     parser.add_argument("--output", "-o", default=None, help="Çıktı PDF dosyasının kaydedileceği yol.")
     parser.add_argument("--generate-pnrs", type=int, metavar="N", help="N adet benzersiz IATA uyumlu PNR kodu üretir.")
     parser.add_argument("--validate-pnr", type=str, metavar="PNR", help="Verilen PNR kodunun geçerliliğini denetler.")
@@ -116,6 +117,18 @@ def main():
         is_valid = validate_pnr(args.validate_pnr)
         status = "GEÇERLİ (VALID)" if is_valid else "GEÇERSİZ (INVALID)"
         print(f"PNR '{args.validate_pnr}': {status}")
+        return
+
+    if args.pnr:
+        out = args.output or f"ticket_{args.pnr.upper()}.pdf"
+        print(f"[*] Veritabanından PNR '{args.pnr.upper()}' sorgulanıyor...")
+        pdf_path = TicketService.issue_pdf_from_db(args.pnr, output_path=out)
+        if not pdf_path:
+            print(f"[!] HATA: Veritabanında '{args.pnr.upper()}' kodlu bir bilet bulunamadı!")
+            return
+        file_size_kb = Path(pdf_path).stat().st_size / 1024
+        print(f"[OK] Bilet veritabanından çekildi ve PDF başarıyla üretildi!")
+        print(f"     PDF Dosyası: {pdf_path} ({file_size_kb:.1f} KB)")
         return
 
     if args.demo:
