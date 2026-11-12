@@ -3,33 +3,27 @@ Flight Ticket Purchasing System - Concurrency CLI Tool
 Komut satırı üzerinden eşzamanlılık simülasyonu, koltuk listeleme ve kilit testi aracı.
 
 Kullanım örnekleri:
-    python cli.py --status
-    python cli.py --list-seats --flight 1
-    python cli.py --simulate --seat 2 --users 10
-    python cli.py --lock --seat 2 --session test_user
-    python cli.py --release --seat 2 --session test_user
-    python cli.py --cleanup
+    python -m concurrency.cli --status
+    python -m concurrency.cli --list-seats --flight 1
+    python -m concurrency.cli --lock --seat 2 --session user_abc
+    python -m concurrency.cli --release --seat 2 --session user_abc
+    python -m concurrency.cli --simulate --seat 2 --users 10
+    python -m concurrency.cli --cleanup
 """
 
 import argparse
-from pathlib import Path
 import sys
 
-# Bulunduğu dizini sys.path'e ekle
-current_dir = Path(__file__).resolve().parent
-if str(current_dir) not in sys.path:
-    sys.path.insert(0, str(current_dir))
-
-# Windows terminal çıktı uyumluluğu
+# Windows terminal UTF-8 uyumluluğu
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
-from db import db_manager
-from lock_manager import SeatLockManager
-from simulator import ConcurrencySimulator
+from concurrency.db import db_manager
+from concurrency.lock_manager import SeatLockManager
+from concurrency.simulator import ConcurrencySimulator
 
 
 def print_banner():
@@ -47,6 +41,7 @@ def cmd_status():
         print(f"     Host: {db_manager.config.host}:{db_manager.config.port}")
         print(f"     Veritabanı: {db_manager.config.dbname}")
         print(f"     Kullanıcı: {db_manager.config.user}")
+        print(f"     Havuz: min={db_manager.config.min_conn}, max={db_manager.config.max_conn}")
     else:
         print("[HATA] Veritabanına bağlanılamadı!")
         print("       Lütfen PostgreSQL servisinin çalıştığından ve şifrenin doğru olduğundan emin olun.")
@@ -71,7 +66,45 @@ def cmd_list_seats(flight_id: int):
     print("=" * 65)
 
 
-def cmd_simulate(seat_id: int, users: int, pessimistic: bool):
+def cmd_lock(seat_id: int, session_id: str, minutes: int, pessimistic: bool):
+    """Madde 25: --lock ve --session desteği"""
+    print_banner()
+    lock_mgr = SeatLockManager()
+    seat = lock_mgr.get_seat(seat_id)
+    if not seat:
+        print(f"[HATA] Koltuk ID {seat_id} bulunamadı!")
+        return
+
+    print(f"[*] Koltuk Kilitleme İsteği: Koltuk ID {seat_id} ({seat.seat_number}), Oturum: {session_id}")
+    if pessimistic:
+        res = lock_mgr.lock_seat_pessimistic(seat_id=seat_id, session_id=session_id, lock_minutes=minutes)
+    else:
+        res = lock_mgr.lock_seat_optimistic(seat_id=seat_id, session_id=session_id, expected_version=seat.version, lock_minutes=minutes)
+
+    if res.success:
+        print(f"[OK] {res.message}")
+        print(f"     Yeni Sürüm: v{res.new_version}, Kilit Bitiş: {res.locked_until}")
+    else:
+        print(f"[HATA] {res.message}")
+        print(f"       Neden: {res.conflict_reason}")
+    print("=" * 65)
+
+
+def cmd_release(seat_id: int, session_id: str):
+    """Madde 25: --release ve --session desteği"""
+    print_banner()
+    lock_mgr = SeatLockManager()
+    print(f"[*] Kilit Bırakma İsteği: Koltuk ID {seat_id}, Oturum: {session_id}")
+    res = lock_mgr.release_seat_lock(seat_id=seat_id, session_id=session_id)
+    if res.success:
+        print(f"[OK] {res.message}")
+    else:
+        print(f"[HATA] {res.message}")
+    print("=" * 65)
+
+
+def cmd_simulate(seat_id: int, users: int, pessimistic: bool, keep_winner_lock: bool = False):
+    """Madde 25: Simülasyon sonunda kazanan kilidi varsayılan olarak temizle"""
     print_banner()
     lock_mgr = SeatLockManager()
     seat = lock_mgr.get_seat(seat_id)
@@ -101,6 +134,7 @@ def cmd_simulate(seat_id: int, users: int, pessimistic: bool):
     print(f"    - Başarılı Kilit: {report.successful_locks} adet (İstenen: Tam 1)")
     print(f"    - Engellenen / Çakışan: {report.failed_locks} adet")
     print(f"    - Çakışma Tespiti: {report.conflicts_detected} adet")
+    print(f"    - Hatalar (PoolError vb.): {report.errors} adet")
     print(f"    - Koltuk Yeni Sürümü: v{report.final_version}")
 
     if report.is_consistent:
@@ -108,7 +142,14 @@ def cmd_simulate(seat_id: int, users: int, pessimistic: bool):
         print(">>> Yarışan kullanıcılardan yalnızca 1'i kilidi alabildi, diğerlerinin çakışması engellendi.")
         print(">>> Veritabanı bütünlüğü kusursuz korundu (Çift rezervasyon İMKANSIZ).")
     else:
-        print("\n>>> [UYARI] Tutarsızlık tespit edildi! (Birden fazla kilit verildi veya hepsi başarısız)")
+        print("\n>>> [UYARI] Tutarsızlık tespit edildi! (Hata oluştu veya birden fazla kilit verildi)")
+
+    # Madde 25: Simülasyon sonrası kazanan kilit temizliği
+    if not keep_winner_lock and report.successful_locks == 1:
+        winner = [r for r in report.results if r.success][0]
+        lock_mgr.release_seat_lock(seat_id, winner.session_id)
+        print(f"[*] Test sonrası temizlik: Kazanan oturumun ({winner.session_id}) kilidi serbest bırakıldı.")
+
     print("=" * 65)
 
 
@@ -130,10 +171,15 @@ def main():
     parser.add_argument("--status", action="store_true", help="Veritabanı bağlantı durumunu kontrol eder.")
     parser.add_argument("--list-seats", action="store_true", help="Uçuş koltuklarını listeler.")
     parser.add_argument("--flight", type=int, default=1, help="Uçuş ID numarası (Varsayılan: 1).")
-    parser.add_argument("--simulate", action="store_true", help="Eşzamanlı yarış simülasyonunu çalıştırır.")
+    parser.add_argument("--lock", action="store_true", help="Belirtilen koltuğu kilitler.")
+    parser.add_argument("--release", action="store_true", help="Belirtilen koltuğun kilidini serbest bırakır.")
     parser.add_argument("--seat", type=int, default=2, help="Kilitlenecek veya simüle edilecek koltuk ID'si.")
+    parser.add_argument("--session", type=str, default="cli_user_session", help="Kilit işlemi için oturum kimliği.")
+    parser.add_argument("--minutes", type=int, default=10, help="Kilit süresi (dakika).")
+    parser.add_argument("--simulate", action="store_true", help="Eşzamanlı yarış simülasyonunu çalıştırır.")
     parser.add_argument("--users", type=int, default=10, help="Simülasyonda yarışacak eşzamanlı kullanıcı sayısı.")
     parser.add_argument("--pessimistic", action="store_true", help="Pessimistic locking modunu kullanır.")
+    parser.add_argument("--keep-winner-lock", action="store_true", help="Simülasyon kazananının kilidini serbest bırakmaz.")
     parser.add_argument("--cleanup", action="store_true", help="Süresi dolmuş kilitleri temizler.")
 
     args = parser.parse_args()
@@ -146,8 +192,16 @@ def main():
         cmd_list_seats(args.flight)
         return
 
+    if args.lock:
+        cmd_lock(args.seat, args.session, args.minutes, args.pessimistic)
+        return
+
+    if args.release:
+        cmd_release(args.seat, args.session)
+        return
+
     if args.simulate:
-        cmd_simulate(args.seat, args.users, args.pessimistic)
+        cmd_simulate(args.seat, args.users, args.pessimistic, args.keep_winner_lock)
         return
 
     if args.cleanup:

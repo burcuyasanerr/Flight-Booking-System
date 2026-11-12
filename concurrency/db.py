@@ -5,15 +5,13 @@ Eşzamanlı istekler için thread-safe bağlantı havuzu (ThreadedConnectionPool
 
 from contextlib import contextmanager
 import logging
+import threading
 from typing import Generator, Optional
 import psycopg2
 from psycopg2.extensions import connection as PGConnection, cursor as PGCursor
 from psycopg2.pool import ThreadedConnectionPool
 
-try:
-    from .config import DatabaseConfig, DEFAULT_DB_CONFIG
-except ImportError:
-    from config import DatabaseConfig, DEFAULT_DB_CONFIG
+from concurrency.config import DatabaseConfig, DEFAULT_DB_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -26,43 +24,50 @@ class DatabaseManager:
     def __init__(self, config: Optional[DatabaseConfig] = None):
         self.config = config or DEFAULT_DB_CONFIG
         self._pool: Optional[ThreadedConnectionPool] = None
+        self._lock = threading.Lock()  # Madde 15: Havuz oluşturma thread-safety
 
     def initialize_pool(self):
-        """Bağlantı havuzunu başlatır."""
+        """Bağlantı havuzunu thread-safe olarak başlatır."""
         if self._pool is None or self._pool.closed:
-            try:
-                self._pool = ThreadedConnectionPool(
-                    minconn=self.config.min_conn,
-                    maxconn=self.config.max_conn,
-                    host=self.config.host,
-                    port=self.config.port,
-                    dbname=self.config.dbname,
-                    user=self.config.user,
-                    password=self.config.password,
-                    connect_timeout=5,
-                )
-                logger.info(
-                    "PostgreSQL bağlantı havuzu oluşturuldu. (Host: %s:%s, DB: %s)",
-                    self.config.host,
-                    self.config.port,
-                    self.config.dbname,
-                )
-            except psycopg2.Error as err:
-                logger.error("Bağlantı havuzu başlatılamadı: %s", err)
-                raise
+            with self._lock:
+                if self._pool is None or self._pool.closed:
+                    try:
+                        self._pool = ThreadedConnectionPool(
+                            minconn=self.config.min_conn,
+                            maxconn=self.config.max_conn,
+                            host=self.config.host,
+                            port=self.config.port,
+                            dbname=self.config.dbname,
+                            user=self.config.user,
+                            password=self.config.password,
+                            connect_timeout=5,
+                        )
+                        logger.info(
+                            "PostgreSQL bağlantı havuzu oluşturuldu (min: %d, max: %d, host: %s:%s, db: %s)",
+                            self.config.min_conn,
+                            self.config.max_conn,
+                            self.config.host,
+                            self.config.port,
+                            self.config.dbname,
+                        )
+                    except psycopg2.Error as err:
+                        logger.error("Bağlantı havuzu başlatılamadı: %s", err)
+                        raise
 
     def close_pool(self):
         """Havuzdaki tüm bağlantıları kapatır."""
-        if self._pool and not self._pool.closed:
-            self._pool.closeall()
-            self._pool = None
-            logger.info("PostgreSQL bağlantı havuzu kapatıldı.")
+        with self._lock:
+            if self._pool and not self._pool.closed:
+                self._pool.closeall()
+                self._pool = None
+                logger.info("PostgreSQL bağlantı havuzu kapatıldı.")
 
     @contextmanager
     def get_connection(self) -> Generator[PGConnection, None, None]:
         """
         Havuzdan bir bağlantı ödünç alır ve işlem bitiminde havuza iade eder.
-        Hata durumunda otomatik ROLLBACK yapar.
+        Madde 14: Kapanmış bağlantılar da havuza close=True ile bildirilerek
+        havuzun tükenmesi (exhausted pool) engellenir.
         """
         if self._pool is None or self._pool.closed:
             self.initialize_pool()
@@ -71,11 +76,13 @@ class DatabaseManager:
         try:
             yield conn
         except Exception:
-            conn.rollback()
+            if not conn.closed:
+                conn.rollback()
             raise
         finally:
-            if not conn.closed:
-                self._pool.putconn(conn)
+            # Madde 14: Bağlantı kapalı olsa bile putconn çağrılmalı
+            if self._pool and not self._pool.closed:
+                self._pool.putconn(conn, close=conn.closed)
 
     @contextmanager
     def get_cursor(self, commit: bool = True) -> Generator[PGCursor, None, None]:
@@ -90,7 +97,8 @@ class DatabaseManager:
                 if commit:
                     conn.commit()
             except Exception:
-                conn.rollback()
+                if not conn.closed:
+                    conn.rollback()
                 raise
             finally:
                 cursor.close()

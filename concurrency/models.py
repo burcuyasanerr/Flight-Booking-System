@@ -4,8 +4,9 @@ Koltuk kilitleme, sürüm kontrolü (optimistic locking) ve eşzamanlılık sonu
 """
 
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 from pydantic import BaseModel, Field
 
 
@@ -17,7 +18,7 @@ class SeatStatus(str, Enum):
 
 
 class SeatClass(str, Enum):
-    """Koltuk sınıfı"""
+    """Koltuk sınıfı - Veritabanı CHECK kısıtlamasıyla birebir uyumlu"""
     BUSINESS = "BUSINESS"
     ECONOMY = "ECONOMY"
 
@@ -28,7 +29,7 @@ class SeatInfo(BaseModel):
     flight_id: int
     seat_number: str
     seat_class: SeatClass
-    price_multiplier: float
+    price_multiplier: Decimal
     status: SeatStatus
     effective_status: SeatStatus = Field(
         ...,
@@ -66,5 +67,6 @@ class BookingResult(BaseModel):
     seat_id: int
     session_id: str
     pnr_code: Optional[str] = None
+    total_price: Optional[Decimal] = None
     message: str
     error_code: Optional[str] = None
