@@ -5,31 +5,21 @@ işlemlerini tek bir çatı altından kolayca yönetmesini sağlayan servis katm
 """
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Optional, Union
 
-try:
-    from .models import (
-        CabinClass,
-        FlightInfo,
-        FlightTicket,
-        Passenger,
-        TicketDetails,
-        TicketStatus,
-    )
-    from .pdf_generator import generate_ticket_pdf, generate_ticket_pdf_bytes
-    from .pnr import generate_deterministic_pnr, generate_pnr, validate_pnr
-except ImportError:
-    from models import (
-        CabinClass,
-        FlightInfo,
-        FlightTicket,
-        Passenger,
-        TicketDetails,
-        TicketStatus,
-    )
-    from pdf_generator import generate_ticket_pdf, generate_ticket_pdf_bytes
-    from pnr import generate_deterministic_pnr, generate_pnr, validate_pnr
+from concurrency.db import db_manager as default_db_manager
+from ticket_pdf.models import (
+    CabinClass,
+    FlightInfo,
+    FlightTicket,
+    Passenger,
+    TicketDetails,
+    TicketStatus,
+)
+from ticket_pdf.pdf_generator import generate_ticket_pdf, generate_ticket_pdf_bytes
+from ticket_pdf.pnr import generate_pnr, validate_pnr
 
 
 class TicketService:
@@ -49,44 +39,47 @@ class TicketService:
         departure_time: datetime,
         arrival_time: datetime,
         seat_number: str,
-        base_price: float,
-        tax_amount: float = 0.0,
+        total_price: Union[float, Decimal],
         airline_name: str = "SkyWings Airlines",
         cabin_class: Union[str, CabinClass] = CabinClass.ECONOMY,
-        baggage_allowance: str = "20 Kg Bagaj + 8 Kg Kabin",
-        gate: str = "--",
-        terminal: str = "T1",
+        baggage_allowance: Optional[str] = None,
+        gate: Optional[str] = None,
+        terminal: Optional[str] = None,
         pnr_prefix: Optional[str] = None,
         identity_number: Optional[str] = None,
         email: Optional[str] = None,
         phone: Optional[str] = None,
-        aircraft_type: str = "Boeing 737-800",
+        aircraft_type: Optional[str] = None,
         pnr_code: Optional[str] = None,
+        ticket_status: TicketStatus = TicketStatus.CONFIRMED,
     ) -> FlightTicket:
         """
         Girdi parametrelerinden geçerli bir FlightTicket veri modeli oluşturur.
-        PNR kodu belirtilmemişse otomatik olarak kriptografik güvenli bir PNR üretir.
+        Madde 24: Tanınmayan kabin sınıfı gelirse sessizce geçiştirmek yerine ValueError fırlatır.
         """
-        # PNR otomatik veya sağlanan kod
         if not pnr_code:
             pnr_code = generate_pnr(length=6, prefix=pnr_prefix)
         else:
             if not validate_pnr(pnr_code):
-                raise ValueError(f"Geçersiz PNR formatı: {pnr_code}")
+                raise ValueError(f"Geçersiz PNR formatı (6 karakter olmalı): {pnr_code}")
 
-        # Kabin sınıfı dönüşümü
+        # Madde 24: Bilinmeyen kabin sınıfı kontrolü
         if isinstance(cabin_class, str):
-            cabin_enum = CabinClass.ECONOMY
-            for c in CabinClass:
-                if c.value.lower() == cabin_class.lower() or c.name.lower() == cabin_class.lower():
-                    cabin_enum = c
-                    break
-        else:
+            clean_class = cabin_class.strip().upper()
+            if clean_class in ("BUSINESS", "EKONOMI", "ECONOMY"):
+                cabin_enum = CabinClass.BUSINESS if clean_class == "BUSINESS" else CabinClass.ECONOMY
+            else:
+                raise ValueError(f"Geçersiz kabin sınıfı: '{cabin_class}'. İzin verilenler: BUSINESS, ECONOMY.")
+        elif isinstance(cabin_class, CabinClass):
             cabin_enum = cabin_class
+        else:
+            raise ValueError(f"Geçersiz kabin sınıfı türü: {type(cabin_class)}")
 
-        # Biniş saati: Kalkıştan 40 dk önce
         boarding_time = departure_time - timedelta(minutes=40)
-        total_price = base_price + tax_amount
+        price_dec = Decimal(str(total_price))
+
+        if not baggage_allowance:
+            baggage_allowance = "30 Kg Bagaj + 8 Kg Kabin" if cabin_enum == CabinClass.BUSINESS else "20 Kg Bagaj + 8 Kg Kabin"
 
         passenger = Passenger(
             first_name=passenger_name,
@@ -116,10 +109,8 @@ class TicketService:
             seat_number=seat_number,
             cabin_class=cabin_enum,
             baggage_allowance=baggage_allowance,
-            base_price=base_price,
-            tax_amount=tax_amount,
-            total_price=total_price,
-            ticket_status=TicketStatus.CONFIRMED,
+            total_price=price_dec,
+            ticket_status=ticket_status,
         )
 
         return FlightTicket(
@@ -134,10 +125,7 @@ class TicketService:
         ticket: FlightTicket,
         output_path: Optional[Union[str, Path]] = None,
     ) -> str:
-        """
-        Verilen bileti PDF formatında diske kaydeder.
-        Hedef dosya yolu belirtilmemişse 'output/ticket_<PNR>.pdf' altına kaydeder.
-        """
+        """Verilen bileti PDF formatında diske kaydeder."""
         if not output_path:
             out_dir = Path("output")
             out_dir.mkdir(exist_ok=True)
@@ -147,50 +135,52 @@ class TicketService:
 
     @classmethod
     def issue_ticket_pdf_bytes(cls, ticket: FlightTicket) -> bytes:
-        """
-        Verilen bileti doğrudan bellekte PDF bayt dizisi (bytes) olarak döner.
-        """
+        """Verilen bileti doğrudan bellekte PDF bayt dizisi (bytes) olarak döner."""
         return generate_ticket_pdf_bytes(ticket)
 
     @classmethod
     def get_ticket_from_db(
         cls,
         pnr_code: str,
+        last_name: Optional[str] = None,
         db_manager=None,
     ) -> Optional[FlightTicket]:
         """
-        Veritabanından PNR koduna göre bilet, uçuş ve yolcu bilgilerini sorgular
-        ve FlightTicket veri modeline dönüştürür.
+        Madde 7, 31, 32:
+        - Madde 31: v_flight_search view'ı yerine doğrudan flights ve airports tabloları join edilir (sadeleştirme).
+        - Madde 7: Güvenlik için soyadı kontrolü desteklenir (PNR + Soyad sorgulaması).
+        - Madde 32: created_at saat dilimi düzgün işlenir.
+        - Madde 21: Uydurma vergi bölünmesi yapılmaz, veritabanındaki gerçek tutar kullanılır.
         """
-        if db_manager is None:
-            try:
-                import sys
-                from pathlib import Path
-                concurrency_dir = Path(__file__).resolve().parent.parent / "concurrency"
-                if str(concurrency_dir) not in sys.path:
-                    sys.path.insert(0, str(concurrency_dir))
-                from db import db_manager as default_db
-                db_manager = default_db
-            except Exception as e:
-                raise RuntimeError(f"Veritabanı yöneticisine erişilemedi: {e}")
-
+        db = db_manager or default_db_manager
         clean_pnr = pnr_code.strip().upper()
+
         query = """
         SELECT b.pnr_code, b.booking_status, b.total_price, b.created_at,
                b.passenger_first_name, b.passenger_last_name, b.passenger_identity_number,
                b.passenger_email, b.passenger_phone,
                s.seat_number, s.seat_class,
-               v.flight_number, v.departure_time, v.arrival_time,
-               v.departure_code, v.departure_city, v.departure_airport,
-               v.arrival_code, v.arrival_city, v.arrival_airport
+               f.flight_number, f.departure_time, f.arrival_time,
+               da.iata_code AS dep_code, da.city AS dep_city, da.name AS dep_airport,
+               aa.iata_code AS arr_code, aa.city AS arr_city, aa.name AS arr_airport
         FROM bookings b
-        JOIN flight_seats s     ON s.id = b.seat_id
-        JOIN v_flight_search v  ON v.flight_id = b.flight_id
-        WHERE b.pnr_code = %s;
+        JOIN flight_seats s   ON s.id = b.seat_id
+        JOIN flights f        ON f.id = b.flight_id
+        JOIN airports da      ON da.id = f.departure_airport_id
+        JOIN airports aa      ON aa.id = f.arrival_airport_id
+        WHERE b.pnr_code = %s
         """
+        params = [clean_pnr]
 
-        with db_manager.get_cursor(commit=False) as cursor:
-            cursor.execute(query, (clean_pnr,))
+        # Madde 7: Güvenlik amaçlı soyadı kontrolü (varsa)
+        if last_name:
+            query += " AND LOWER(b.passenger_last_name) = LOWER(%s)"
+            params.append(last_name.strip())
+
+        query += ";"
+
+        with db.get_cursor(commit=False) as cursor:
+            cursor.execute(query, tuple(params))
             row = cursor.fetchone()
             if not row:
                 return None
@@ -218,34 +208,33 @@ class TicketService:
             boarding_time = dep_time - timedelta(minutes=40)
             flight = FlightInfo(
                 flight_number=f_number,
-                airline_name="Türk Hava Yolları" if f_number.startswith("TK") else "Pegasus Airlines",
+                airline_name="SkyWings Airlines",
                 origin_code=dep_code,
-                origin_name=f"{dep_city} - {dep_airport}",
+                origin_name=f"{dep_city} ({dep_airport})",
                 destination_code=arr_code,
-                destination_name=f"{arr_city} - {arr_airport}",
+                destination_name=f"{arr_city} ({arr_airport})",
                 departure_datetime=dep_time,
                 arrival_datetime=arr_time,
                 boarding_time=boarding_time,
-                gate="214B",
-                terminal="T1",
-                aircraft_type="Airbus A321neo" if f_number.startswith("TK") else "Boeing 737-800",
+                gate=None,          # Madde 21: Bilinmeyen kapı bilgisi verilmez
+                terminal=None,
+                aircraft_type=None,
             )
 
-            tot_price = float(total_price)
-            base_p = tot_price * 0.82
-            tax_p = tot_price * 0.18
+            # Madde 32: Saat dilimi dönüşümü
+            booking_dt = created_at
+            if hasattr(booking_dt, "astimezone"):
+                booking_dt = booking_dt.astimezone()
 
             ticket_details = TicketDetails(
                 pnr_code=pnr,
                 seat_number=s_number,
                 cabin_class=cabin,
                 baggage_allowance="30 Kg Bagaj + 8 Kg Kabin" if cabin == CabinClass.BUSINESS else "20 Kg Bagaj + 8 Kg Kabin",
-                base_price=round(base_p, 2),
-                tax_amount=round(tax_p, 2),
-                total_price=tot_price,
+                total_price=Decimal(str(total_price)),
                 currency="TRY",
-                payment_method="Kredi Kartı / Havale",
-                booking_date=created_at.replace(tzinfo=None) if hasattr(created_at, "replace") else created_at,
+                payment_method="Elektronik Tahsilat",
+                booking_date=booking_dt.replace(tzinfo=None) if hasattr(booking_dt, "replace") else booking_dt,
                 ticket_status=status,
             )
 
@@ -259,13 +248,12 @@ class TicketService:
     def issue_pdf_from_db(
         cls,
         pnr_code: str,
+        last_name: Optional[str] = None,
         output_path: Optional[Union[str, Path]] = None,
         db_manager=None,
     ) -> Optional[str]:
-        """
-        Veritabanından PNR koduna göre bileti çekip PDF dosyasını üretir ve yolunu döner.
-        """
-        ticket = cls.get_ticket_from_db(pnr_code, db_manager=db_manager)
+        """Veritabanından PNR koduna göre bileti çekip PDF dosyasını üretir."""
+        ticket = cls.get_ticket_from_db(pnr_code, last_name=last_name, db_manager=db_manager)
         if not ticket:
             return None
         return cls.issue_ticket_pdf(ticket, output_path=output_path)
@@ -274,12 +262,11 @@ class TicketService:
     def issue_pdf_bytes_from_db(
         cls,
         pnr_code: str,
+        last_name: Optional[str] = None,
         db_manager=None,
     ) -> Optional[bytes]:
-        """
-        Veritabanından PNR koduna göre bileti çekip PDF bayt dizisi (bytes) döner.
-        """
-        ticket = cls.get_ticket_from_db(pnr_code, db_manager=db_manager)
+        """Veritabanından PNR koduna göre bileti çekip PDF bayt dizisi (bytes) döner."""
+        ticket = cls.get_ticket_from_db(pnr_code, last_name=last_name, db_manager=db_manager)
         if not ticket:
             return None
         return cls.issue_ticket_pdf_bytes(ticket)
