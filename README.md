@@ -54,8 +54,8 @@ Kullanıcı kayıt olup giriş yapar, kalkış-varış havalimanı ve tarih seç
 | Bilet satın alma API | ⏳ | |
 | Arayüz (arama, koltuk seçimi, ödeme) | ⏳ | |
 | Harita görselleştirme | ⏳ | |
-| Koltuk kilitleme (concurrency) | ⏳ | |
-| PNR üretimi ve PDF bilet | ⏳ | |
+| Koltuk kilitleme (concurrency) | ✅ | `concurrency/` |
+| PNR üretimi ve PDF bilet | ✅ | `ticket_pdf/` |
 
 ---
 
@@ -67,7 +67,7 @@ Flight-Booking-System/
 ├── backend/        # Sunucu tarafı ve API servisleri
 ├── frontend/       # Kullanıcı arayüzü ve harita üzerinde uçuş güzergâhı görselleştirme
 ├── concurrency/    # Aktif koltuk seçiminde eşzamanlılık (concurrency) çakışma yönetimi
-└── ticket-pdf/     # PNR kodu üretimi ve bilet PDF çıktısı oluşturma
+└── ticket_pdf/     # PNR kodu üretimi ve bilet PDF çıktısı oluşturma
 ```
 
 ---
@@ -78,7 +78,7 @@ Flight-Booking-System/
 | :--- | :--- | :--- |
 | **1. Üye** | Backend & Veritabanı | `database/`, `backend/` |
 | **2. Üye** | Frontend & Harita Görselleştirme | `frontend/` |
-| **3. Üye** | Eşzamanlılık (Concurrency) & PNR PDF Çıktısı | `concurrency/`, `ticket-pdf/` |
+| **3. Üye** | Eşzamanlılık (Concurrency) & PNR PDF Çıktısı | `concurrency/`, `ticket_pdf/` |
 
 ---
 
