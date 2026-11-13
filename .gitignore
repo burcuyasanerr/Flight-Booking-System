@@ -8,6 +8,7 @@ desktop.ini
 # Ortam Değişkenleri
 .env
 .env.*
+!.env.example
 
 # Bağımlılık ve Derleme Klasörleri
 node_modules/
