@@ -1,47 +1,97 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Armchair, CheckCircle2, Crown, Lock } from 'lucide-react';
+import { getErrorCode, getErrorMessage, getSeatsByFlightId, lockSeat, releaseSeat } from './api';
+
+// Koltuk haritası bu aralıkla yenilenir; başka kullanıcıların kilitledikleri koltuklar böylece görünür.
+const REFRESH_INTERVAL_MS = 10000;
 
 export default function SeatSelection({ flight, onSeatSelect }) {
+  const [seatsList, setSeatsList] = useState([]);
   const [selectedSeat, setSelectedSeat] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLocking, setIsLocking] = useState(false);
+  const [seatError, setSeatError] = useState(''); // koltuk seçme (kilitleme) hatası
+  const [loadError, setLoadError] = useState(''); // koltuk haritası yükleme hatası
+  // Uçuş değiştiğinde ya da bileşen kapandığında bırakılacak kilit
+  const lockedSeatIdRef = useRef(null);
 
-  // Uçuş değiştiğinde seçili koltuğu sıfırla
+  const flightId = flight?.flight_id;
+
+  const loadSeats = useCallback(
+    () =>
+      getSeatsByFlightId(flightId)
+        .then((seats) => {
+          setSeatsList(seats);
+          setLoadError('');
+        })
+        .catch((error) => setLoadError(getErrorMessage(error, 'Koltuk bilgisi alınamadı.')))
+        .finally(() => setIsLoading(false)),
+    [flightId]
+  );
+
   useEffect(() => {
-    setSelectedSeat(null);
-  }, [flight?.flight_id]);
+    if (!flightId) return undefined;
+    loadSeats();
+    const timer = setInterval(loadSeats, REFRESH_INTERVAL_MS);
+    return () => {
+      clearInterval(timer);
+      // Kullanıcı başka uçuşa geçtiyse ya da sayfadan ayrıldıysa tuttuğu koltuğu bırak
+      if (lockedSeatIdRef.current) {
+        releaseSeat(lockedSeatIdRef.current).catch(() => {});
+        lockedSeatIdRef.current = null;
+      }
+    };
+  }, [flightId, loadSeats]);
 
   const rows = [1, 2, 3, 4, 5, 6];
   const seatsLeft = ['A', 'B', 'C'];
   const seatsRight = ['D', 'E', 'F'];
 
-  const seatsList = flight?.seats || [];
+  const getSeatObj = (seatNo) => seatsList.find((s) => s.seat_number === seatNo);
 
-  const getSeatObj = (seatNo) => {
-    return (
-      seatsList.find((s) => s.seat_number === seatNo) || {
-        id: 0,
-        seat_number: seatNo,
-        seat_class: Number(seatNo[0]) <= 2 ? 'BUSINESS' : 'ECONOMY',
-        price_multiplier: Number(seatNo[0]) <= 2 ? 1.5 : 1.0,
-        status: 'AVAILABLE'
+  const handleSeatClick = async (seatObj) => {
+    if (!seatObj || seatObj.status !== 'AVAILABLE' || isLocking) return;
+    setIsLocking(true);
+    setSeatError('');
+    try {
+      // version gönderildiği için optimistic locking kullanılır:
+      // koltuk biz haritayı yükledikten sonra değiştiyse istek reddedilir.
+      const lock = await lockSeat(seatObj.id, seatObj.version);
+
+      const previousSeatId = lockedSeatIdRef.current;
+      lockedSeatIdRef.current = seatObj.id;
+      if (previousSeatId && previousSeatId !== seatObj.id) {
+        releaseSeat(previousSeatId).catch(() => {});
       }
-    );
-  };
 
-  const handleSeatClick = (seatObj) => {
-    if (seatObj.status !== 'AVAILABLE') return;
-    const calculatedPrice = Number((flight.base_price * seatObj.price_multiplier).toFixed(2));
-    const enrichedSeat = { ...seatObj, calculatedPrice };
-    setSelectedSeat(enrichedSeat);
-    onSeatSelect(enrichedSeat);
+      const calculatedPrice = Number((flight.base_price * seatObj.price_multiplier).toFixed(2));
+      const enrichedSeat = { ...seatObj, calculatedPrice, lockedUntil: lock.locked_until };
+      setSelectedSeat(enrichedSeat);
+      onSeatSelect(enrichedSeat);
+    } catch (error) {
+      const code = getErrorCode(error);
+      const message =
+        code === 'VERSION_MISMATCH_RACE_CONDITION' || code === 'LOCKED_BY_ANOTHER_USER'
+          ? 'Bu koltuk az önce başka bir kullanıcı tarafından seçildi. Lütfen başka bir koltuk seçiniz.'
+          : getErrorMessage(error, 'Koltuk seçilemedi.');
+      setSeatError(message);
+    } finally {
+      setIsLocking(false);
+      loadSeats();
+    }
   };
 
   const renderSeatButton = (row, letter) => {
     const seatNo = `${row}${letter}`;
     const seatObj = getSeatObj(seatNo);
+    if (!seatObj) {
+      // Koltuk listesi henüz gelmediyse boş bir yer tutucu gösterilir
+      return <div key={seatNo} style={{ width: '42px', height: '42px', borderRadius: '10px', background: '#e2e8f0' }} />;
+    }
+    const isSelected = selectedSeat?.id === seatObj.id;
     const isBooked = seatObj.status === 'BOOKED';
-    const isLocked = seatObj.status === 'LOCKED';
-    const isUnavailable = isBooked || isLocked;
-    const isSelected = selectedSeat?.seat_number === seatNo;
+    const isLocked = seatObj.status === 'LOCKED' && !isSelected;
+    const isUnavailable = isBooked || isLocked || isSelected || isLocking;
     const isBusiness = seatObj.seat_class === 'BUSINESS';
     const seatPrice = (flight.base_price * seatObj.price_multiplier).toFixed(0);
 
@@ -64,7 +114,7 @@ export default function SeatSelection({ flight, onSeatSelect }) {
           color: isBooked ? '#64748b' : 'white',
           border: isSelected ? '2px solid #1d4ed8' : 'none',
           borderRadius: '10px',
-          cursor: isUnavailable ? 'not-allowed' : 'pointer',
+          cursor: isSelected ? 'default' : isUnavailable ? 'not-allowed' : 'pointer',
           fontWeight: '700',
           fontSize: '13px',
           transition: 'all 0.2s ease',
@@ -109,6 +159,15 @@ export default function SeatSelection({ flight, onSeatSelect }) {
         </div>
       </div>
 
+      {(seatError || loadError) && (
+        <div style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '14px 18px', borderRadius: '12px', marginBottom: '20px', fontSize: '14px', border: '1px solid #fecaca', fontWeight: '600' }}>
+          {seatError || loadError}
+        </div>
+      )}
+      {isLoading && (
+        <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 16px 0' }}>Koltuklar yükleniyor...</p>
+      )}
+
       {/* Uçak Gövdesi Tasarımı (1A - 6F) */}
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <div style={{ background: '#f8fafc', padding: '36px 28px 28px 28px', borderRadius: '80px 80px 24px 24px', border: '2px solid #e2e8f0' }}>
@@ -146,6 +205,11 @@ export default function SeatSelection({ flight, onSeatSelect }) {
           <CheckCircle2 size={18} />
           <span style={{ fontSize: '14px' }}>
             Seçilen Koltuk: <strong>{selectedSeat.seat_number}</strong> ({selectedSeat.seat_class}) • Toplam Fiyat: <strong>{selectedSeat.calculatedPrice} TL</strong>
+            {selectedSeat.lockedUntil && (
+              <> • <Lock size={13} style={{ verticalAlign: '-2px' }} /> Koltuk{' '}
+                <strong>{new Date(selectedSeat.lockedUntil).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</strong>{' '}
+                saatine kadar sizin için ayrıldı</>
+            )}
           </span>
         </div>
       )}

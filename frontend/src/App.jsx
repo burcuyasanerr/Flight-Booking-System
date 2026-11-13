@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import { Plane, Search, Calendar, User, CheckCircle2, BookmarkCheck, PhoneCall, HelpCircle, Compass, ShieldCheck, Route, Star, Globe, Award, Users, ArrowRightLeft, MapPin, LogIn, X, Lock, Mail, UserCheck, LogOut } from 'lucide-react';
-import { mockAirports, mockFlights } from './mock';
+import { getAirports, getBookingByPnr, getErrorMessage, getTicketPdfUrl, searchFlights } from './api';
 import SeatSelection from './SeatSelection';
 
 const STATUS_LABELS = {
@@ -16,6 +16,12 @@ export default function App() {
   const [tripType, setTripType] = useState('oneWay');
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
+  const [departureDate, setDepartureDate] = useState('2026-11-15');
+  const [airports, setAirports] = useState([]);
+  const [allFlights, setAllFlights] = useState([]);
+  const [loadError, setLoadError] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedFlight, setSelectedFlight] = useState(null);
@@ -31,6 +37,18 @@ export default function App() {
   // PNR Sorgulama State
   const [searchPnr, setSearchPnr] = useState('');
   const [pnrResult, setPnrResult] = useState(null);
+  const [pnrError, setPnrError] = useState('');
+  const [isPnrLoading, setIsPnrLoading] = useState(false);
+
+  // Havalimanları (arama kutuları ve harita) ve tüm uçuşlar (haritadaki rotalar) backend'den yüklenir
+  useEffect(() => {
+    Promise.all([getAirports(), searchFlights()])
+      .then(([airportList, flightList]) => {
+        setAirports(airportList);
+        setAllFlights(flightList);
+      })
+      .catch((error) => setLoadError(getErrorMessage(error, 'Havalimanı ve uçuş bilgileri yüklenemedi.')));
+  }, []);
 
   // Auth / Modal State
   const [isAuthOpen, setIsAuthOpen] = useState(false);
@@ -41,19 +59,28 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [user, setUser] = useState(null);
 
-  const handleSearch = (e) => {
+  const handleSearch = async (e) => {
     e.preventDefault();
-    setHasSearched(true);
     setSelectedFlight(null);
     setChosenSeat(null);
     setBookingSummary(null);
     setErrorMessage('');
-    const filtered = mockFlights.filter(flight => {
-      const matchesOrigin = !origin || flight.departure_code === origin;
-      const matchesDest = !destination || flight.arrival_code === destination;
-      return matchesOrigin && matchesDest;
-    });
-    setSearchResults(filtered);
+    setSearchError('');
+    if (origin && destination && origin === destination) {
+      setSearchError('Kalkış ve varış havalimanı aynı olamaz.');
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const flights = await searchFlights(origin || undefined, destination || undefined, departureDate || undefined);
+      setSearchResults(flights);
+      setHasSearched(true);
+    } catch (error) {
+      setSearchResults([]);
+      setSearchError(getErrorMessage(error, 'Uçuşlar aranırken bir hata oluştu.'));
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleBookingSubmit = (e) => {
@@ -93,12 +120,37 @@ export default function App() {
     });
   };
 
-  const handlePnrSearch = (e) => {
+  const handlePnrSearch = async (e) => {
     e.preventDefault();
-    if (bookingSummary && bookingSummary.pnr === searchPnr.trim().toUpperCase()) {
-      setPnrResult(bookingSummary);
-    } else {
-      setPnrResult('NOT_FOUND');
+    const pnr = searchPnr.trim().toUpperCase();
+    setPnrResult(null);
+    setPnrError('');
+    if (!/^[A-Z0-9]{6}$/.test(pnr)) {
+      setPnrError('PNR kodu 6 karakterden (harf ve rakam) oluşmalıdır.');
+      return;
+    }
+    setIsPnrLoading(true);
+    try {
+      const booking = await getBookingByPnr(pnr);
+      setPnrResult({
+        pnr: booking.pnr_code,
+        status: booking.booking_status,
+        passengerName: `${booking.passenger_first_name} ${booking.passenger_last_name}`,
+        flightNumber: booking.flight_number,
+        origin: `${booking.departure_city} (${booking.departure_code})`,
+        destination: `${booking.arrival_city} (${booking.arrival_code})`,
+        departureTime: booking.departure_time,
+        seat: `${booking.seat_number} (${booking.seat_class})`,
+        price: booking.total_price,
+      });
+    } catch (error) {
+      if (error.response?.status === 404) {
+        setPnrResult('NOT_FOUND');
+      } else {
+        setPnrError(getErrorMessage(error, 'PNR sorgulanırken bir hata oluştu.'));
+      }
+    } finally {
+      setIsPnrLoading(false);
     }
   };
 
@@ -132,7 +184,7 @@ export default function App() {
     setAuthError('');
   };
 
-  const flightRoutes = (hasSearched && searchResults.length > 0 ? searchResults : mockFlights).map(flight => ({
+  const flightRoutes = (hasSearched && searchResults.length > 0 ? searchResults : allFlights).map(flight => ({
     id: flight.flight_id,
     number: flight.flight_number,
     positions: [
@@ -391,6 +443,8 @@ export default function App() {
                     <div>
                       <h2 style={{ margin: 0, fontSize: '22px', fontWeight: '700' }}>Rezervasyon Onaylandı</h2>
                       <span style={{ fontSize: '13px', color: '#94a3b8' }}>Elektronik Biniş Kartınız Başarıyla Üretildi</span>
+                      {/* POST /api/bookings bağlanınca bu not kaldırılacak */}
+                      <span style={{ fontSize: '12px', color: '#fbbf24', display: 'block', marginTop: '4px' }}>Önizleme: satın alma adımı henüz sunucuya kaydedilmiyor.</span>
                     </div>
                   </div>
                   <div style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '10px 20px', borderRadius: '12px', textAlign: 'right' }}>
@@ -512,7 +566,7 @@ export default function App() {
                       </label>
                       <select value={origin} onChange={(e) => setOrigin(e.target.value)} style={{ width: '100%', border: 'none', backgroundColor: 'transparent', fontSize: '14px', color: '#0f172a', fontWeight: '700', outline: 'none', cursor: 'pointer', padding: 0 }}>
                         <option value="">Tüm Havalimanları</option>
-                        {mockAirports.map(a => (
+                        {airports.map(a => (
                           <option key={a.id} value={a.iata_code}>{a.city} - {a.name} ({a.iata_code})</option>
                         ))}
                       </select>
@@ -525,7 +579,7 @@ export default function App() {
                       </label>
                       <select value={destination} onChange={(e) => setDestination(e.target.value)} style={{ width: '100%', border: 'none', backgroundColor: 'transparent', fontSize: '14px', color: '#0f172a', fontWeight: '700', outline: 'none', cursor: 'pointer', padding: 0 }}>
                         <option value="">Tüm Havalimanları</option>
-                        {mockAirports.map(a => (
+                        {airports.map(a => (
                           <option key={a.id} value={a.iata_code}>{a.city} - {a.name} ({a.iata_code})</option>
                         ))}
                       </select>
@@ -536,7 +590,7 @@ export default function App() {
                       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '800', color: '#94a3b8', letterSpacing: '0.5px', marginBottom: '4px' }}>
                         <Calendar size={13} color="#6366f1" /> GİDİŞ TARİHİ
                       </label>
-                      <input type="date" defaultValue="2026-11-15" style={{ width: '100%', border: 'none', backgroundColor: 'transparent', fontSize: '14px', color: '#0f172a', fontWeight: '700', outline: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }} />
+                      <input type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} style={{ width: '100%', border: 'none', backgroundColor: 'transparent', fontSize: '14px', color: '#0f172a', fontWeight: '700', outline: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }} />
                     </div>
 
                     {/* DÖNÜŞ TARİHİ */}
@@ -594,8 +648,17 @@ export default function App() {
                   })}
                 </div>
 
+                {(loadError || searchError) && (
+                  <div style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '16px', borderRadius: '12px', marginBottom: '24px', fontSize: '14px', border: '1px solid #fecaca', fontWeight: '600' }}>
+                    {searchError || loadError}
+                  </div>
+                )}
+                {isSearching && (
+                  <p style={{ color: '#64748b', fontWeight: '600', marginBottom: '24px' }}>Uçuşlar aranıyor...</p>
+                )}
+
                 {/* UÇUŞ SONUÇLARI */}
-                {hasSearched && (
+                {hasSearched && !isSearching && (
                   <div style={{ marginBottom: '40px' }}>
                     <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '20px', color: '#0f172a' }}>Müsait Seferler</h3>
                     {searchResults.length === 0 ? (
@@ -655,6 +718,7 @@ export default function App() {
                 {selectedFlight && (
                   <div>
                     <SeatSelection 
+                      key={selectedFlight.flight_id}
                       flight={selectedFlight} 
                       onSeatSelect={(seatObj) => {
                         setChosenSeat(seatObj);
@@ -802,7 +866,7 @@ export default function App() {
                         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         attribution='&copy; OpenStreetMap'
                       />
-                      {mockAirports.map((airport) => (
+                      {airports.map((airport) => (
                         <Marker key={airport.id} position={[airport.latitude, airport.longitude]}>
                           <Popup>
                             <strong>{airport.name} ({airport.iata_code})</strong><br />
@@ -845,6 +909,14 @@ export default function App() {
                 Sorgula
               </button>
             </form>
+            {isPnrLoading && (
+              <p style={{ color: '#64748b', fontWeight: '600' }}>Sorgulanıyor...</p>
+            )}
+            {pnrError && (
+              <div style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '18px', borderRadius: '14px', border: '1px solid #fecaca', fontWeight: '600', marginBottom: '16px' }}>
+                {pnrError}
+              </div>
+            )}
             {pnrResult === 'NOT_FOUND' && (
               <div style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '18px', borderRadius: '14px', border: '1px solid #fecaca', fontWeight: '600' }}>
                 Girdiğiniz PNR koduna ait aktif bir rezervasyon bulunamadı.
@@ -854,12 +926,23 @@ export default function App() {
               <div style={{ backgroundColor: '#f8fafc', padding: '28px', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
                 <h4 style={{ margin: '0 0 18px 0', color: '#2563eb', fontSize: '18px', fontWeight: '700' }}>Rezervasyon Bilgileriniz</h4>
                 <div style={{ display: 'grid', gap: '12px', fontSize: '15px', color: '#1e293b' }}>
+                  <p style={{ margin: 0 }}><strong>PNR:</strong> {pnrResult.pnr} • <strong>Durum:</strong>{' '}
+                    <span style={{ color: pnrResult.status === 'CANCELLED' ? '#b91c1c' : '#15803d', fontWeight: '700' }}>
+                      {pnrResult.status === 'CANCELLED' ? 'İptal Edildi' : 'Onaylandı'}
+                    </span>
+                  </p>
                   <p style={{ margin: 0 }}><strong>Yolcu Ad Soyad:</strong> {pnrResult.passengerName}</p>
-                  <p style={{ margin: 0 }}><strong>Kimlik No:</strong> {pnrResult.passengerIdentity}</p>
                   <p style={{ margin: 0 }}><strong>Uçuş Seferi:</strong> {pnrResult.flightNumber} ({pnrResult.origin} ➔ {pnrResult.destination})</p>
+                  <p style={{ margin: 0 }}><strong>Kalkış:</strong> {new Date(pnrResult.departureTime).toLocaleString('tr-TR')}</p>
                   <p style={{ margin: 0 }}><strong>Koltuk Numarası:</strong> <span style={{ color: '#10b981', fontWeight: '700' }}>{pnrResult.seat}</span></p>
-                  <p style={{ margin: 0 }}><strong>Tutar:</strong> {pnrResult.price} TL</p>
+                  <p style={{ margin: 0 }}><strong>Tutar:</strong> {pnrResult.price.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} TL</p>
                 </div>
+                <a
+                  href={getTicketPdfUrl(pnrResult.pnr)}
+                  style={{ display: 'inline-block', marginTop: '20px', backgroundColor: '#2563eb', color: 'white', padding: '12px 24px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', textDecoration: 'none' }}
+                >
+                  Bileti İndir (PDF)
+                </a>
               </div>
             )}
           </div>
