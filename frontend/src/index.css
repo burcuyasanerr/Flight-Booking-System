@@ -1,0 +1,22 @@
+/* Vite ve Tarayıcının Tüm Koyu Temalarını Ezme */
+:root {
+  color-scheme: light !important;
+  background-color: #f8fafc !important;
+  color: #1e293b !important;
+}
+
+html, body, #root, div {
+  background-color: transparent;
+}
+
+body {
+  margin: 0 !important;
+  padding: 0 !important;
+  background-color: #f8fafc !important;
+  color: #1e293b !important;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+}
+
+* {
+  box-sizing: border-box;
+}
