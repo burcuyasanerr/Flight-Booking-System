@@ -25,7 +25,7 @@ export const getAirports = async () => {
 export const searchFlights = async (origin, destination, date) => {
   try {
     const response = await api.get('/flights', {
-      params: { origin, destination, date }
+      params: { from: origin, to: destination, date }
     });
     return response.data;
   } catch (error) {
