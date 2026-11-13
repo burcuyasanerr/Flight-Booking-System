@@ -135,17 +135,26 @@ net start postgresql-x64-17
 
 ### 3. Backend'i çalıştır
 
-Proje kök klasöründe:
+Proje kök klasöründe, **ilk seferde** (Git Bash):
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate
+source .venv/Scripts/activate
 pip install -r backend/requirements.txt
-copy .env.example .env
+cp .env.example .env
+```
+
+`.env` içindeki `DB_PASSWORD` değerini kendi PostgreSQL şifrenle değiştir. Sonra sunucuyu başlat:
+
+```bash
 python -m backend
 ```
 
-`.env` içindeki `DB_PASSWORD` değerini kendi PostgreSQL şifrenle değiştir. Sunucu açılınca:
+**Sonraki seferlerde** yalnızca `source .venv/Scripts/activate` ve `python -m backend` yeterli.
+
+> CMD kullanıyorsan: `source .venv/Scripts/activate` yerine `.venv\Scripts\activate`, `cp` yerine `copy` yaz.
+
+Sunucu açılınca:
 
 - API: http://localhost:5000/api
 - Swagger dokümantasyonu: http://localhost:5000/docs

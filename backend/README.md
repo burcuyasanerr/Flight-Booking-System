@@ -13,14 +13,17 @@ React (Vite, :5173)  ──HTTP/JSON──▶  FastAPI (:5000/api)  ──psycop
 
 ## Kurulum
 
-Komutların hepsi **proje kök klasöründe** çalıştırılır.
+Komutların hepsi **proje kök klasöründe** çalıştırılır (Git Bash):
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate
+source .venv/Scripts/activate
 pip install -r backend/requirements.txt
-copy .env.example .env
+cp .env.example .env
 ```
+
+> CMD kullanıyorsan: `source .venv/Scripts/activate` yerine `.venv\Scripts\activate`, `cp` yerine `copy` yaz.
+> Sanal ortamı (`activate`) her yeni terminalde tekrar açman gerekir.
 
 `.env` içindeki `DB_PASSWORD` değerini kendi PostgreSQL şifrenle değiştir.
 Veritabanının kurulu olması gerekir (ana README → *Veritabanını kur*).
