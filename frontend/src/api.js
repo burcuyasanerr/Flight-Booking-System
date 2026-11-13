@@ -1,7 +1,28 @@
 import axios from 'axios';
 
-// Backend sunucunun adresi (Burcu sunucuyu başlattığında port numarasını buraya yazacaksınız, örn: 5000 veya 8000)
+// Backend sunucunun adresi (backend: `python -m backend`, varsayılan port 5000)
 const API_BASE_URL = 'http://localhost:5000/api';
+
+// Backend hataları {"detail": {"code": "...", "message": "..."}} biçiminde döner.
+// Ekranda gösterilecek Türkçe mesajı çıkarır; sunucuya ulaşılamazsa ona göre mesaj verir.
+export const getErrorMessage = (error, fallback = 'Beklenmeyen bir hata oluştu.') => {
+  if (!error?.response) {
+    return 'Sunucuya ulaşılamadı. Backend çalışıyor mu? (python -m backend)';
+  }
+  return error.response.data?.detail?.message || fallback;
+};
+
+export const getErrorCode = (error) => error?.response?.data?.detail?.code;
+
+// Giriş sistemi gelene kadar koltuk kilitleri bu tarayıcı sekmesine ait bir oturum kimliğiyle tutulur.
+export const getSessionId = () => {
+  let sessionId = sessionStorage.getItem('seatSessionId');
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem('seatSessionId', sessionId);
+  }
+  return sessionId;
+};
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -56,15 +77,38 @@ export const createBooking = async (bookingData) => {
   }
 };
 
-// 5. PNR ile Bilet Sorgula
-export const getBookingByPnr = async (pnr) => {
+// 3b. Koltuğu Kilitle (10 dk boyunca bu oturuma ayrılır; aynı oturum tekrar isterse süre uzar)
+export const lockSeat = async (seatId, expectedVersion) => {
+  const body = { session_id: getSessionId() };
+  if (expectedVersion != null) body.expected_version = expectedVersion;
+  const response = await api.post(`/seats/${seatId}/lock`, body);
+  return response.data;
+};
+
+// 3c. Koltuk Kilidini Bırak
+export const releaseSeat = async (seatId) => {
+  const response = await api.delete(`/seats/${seatId}/lock`, {
+    params: { session_id: getSessionId() },
+  });
+  return response.data;
+};
+
+// 5. PNR ile Bilet Sorgula (soyad verilirse PNR ile birlikte kontrol edilir)
+export const getBookingByPnr = async (pnr, lastName) => {
   try {
-    const response = await api.get(`/bookings/pnr/${pnr}`);
+    const params = lastName ? { last_name: lastName } : undefined;
+    const response = await api.get(`/bookings/pnr/${encodeURIComponent(pnr)}`, { params });
     return response.data;
   } catch (error) {
     console.error('PNR sorgulama hatası:', error);
     throw error;
   }
+};
+
+// 5b. Bilet PDF'inin indirme adresi (doğrudan <a href> ile kullanılır)
+export const getTicketPdfUrl = (pnr, lastName) => {
+  const query = lastName ? `?last_name=${encodeURIComponent(lastName)}` : '';
+  return `${API_BASE_URL}/bookings/pnr/${encodeURIComponent(pnr)}/pdf${query}`;
 };
 
 // 6. Kullanıcı Girişi / Kayıt
