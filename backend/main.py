@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.errors import register_error_handlers
-from backend.routers import airports, flights
+from backend.routers import airports, flights, seats
 from backend.schemas import HealthResponse
 from backend.services import db_manager, lock_manager
 from concurrency.lock_manager import BackgroundLockCleaner
@@ -63,7 +63,7 @@ app.add_middleware(
 
 register_error_handlers(app)
 
-for router in (airports.router, flights.router):
+for router in (airports.router, flights.router, seats.router):
     app.include_router(router, prefix=settings.api_prefix)
 
 
