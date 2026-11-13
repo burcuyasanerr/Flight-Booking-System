@@ -55,11 +55,11 @@ def release_seat(
     session_id: str = Query(min_length=1, max_length=100, description="Kilidi alan oturum"),
 ):
     """Yalnızca kilidi alan oturum koltuğu bırakabilir."""
-    if lock_manager.get_seat(seat_id) is None:
-        raise api_error(404, "SEAT_NOT_FOUND", "Koltuk bulunamadı.")
-
     result = lock_manager.release_seat_lock(seat_id, session_id)
     if not result.success:
+        # Neden başarısız olduğunu ayırt etmek için koltuk yalnızca bu durumda sorgulanır
+        if lock_manager.get_seat(seat_id) is None:
+            raise api_error(404, "SEAT_NOT_FOUND", "Koltuk bulunamadı.")
         raise api_error(409, "LOCK_NOT_OWNED", result.message)
 
     return ReleaseResponse(seat_id=seat_id, message=result.message)

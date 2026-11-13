@@ -72,3 +72,27 @@ def test_flight_seats(client):
     assert "locked_by_session" not in seats[0]
 
     assert client.get("/api/flights/9999/seats").status_code == 404
+
+
+def test_validation_errors_use_common_format(client):
+    response = client.get("/api/flights", params={"from": "ISTX"})
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "VALIDATION_ERROR"
+    assert "from" in detail["message"]
+    assert detail["errors"][0]["field"] == "from"
+
+    missing_body = client.post("/api/seats/1/lock", json={}).json()["detail"]
+    assert missing_body["code"] == "VALIDATION_ERROR"
+    assert missing_body["errors"][0]["field"] == "session_id"
+
+
+def test_cancelled_flights_are_listed_with_status(client, fresh_db):
+    """İptal edilen uçuşlar aramada 'CANCELLED' durumuyla gelir; arayüz 'İptal' rozetiyle gösterir."""
+    from backend.services import db_manager
+
+    with db_manager.get_cursor() as cursor:
+        cursor.execute("UPDATE flights SET status = 'CANCELLED' WHERE flight_number = 'TK-2105';")
+
+    flights = client.get("/api/flights", params={"from": "IST", "to": "ESB", "date": "2026-11-15"}).json()
+    assert {f["flight_number"]: f["status"] for f in flights} == {"TK-2101": "SCHEDULED", "TK-2105": "CANCELLED"}

@@ -92,11 +92,14 @@ def get_flight_seats(flight_id: int = Path(gt=0)):
     Koltukların güncel durumunu döner. Süresi dolmuş kilitler `AVAILABLE` olarak
     gösterilir. Kilidi kimin tuttuğu (session) dışarıya verilmez.
     """
-    with db_manager.get_cursor(commit=False) as cursor:
-        if not _flight_exists(cursor, flight_id):
-            raise api_error(404, "FLIGHT_NOT_FOUND", "Uçuş bulunamadı.")
-
     seats = lock_manager.get_flight_seats(flight_id)
+    if not seats:
+        # Her uçuşun koltuğu olduğundan boş liste ancak uçuş yoksa gelir;
+        # ek sorgu sadece bu durumda atılır.
+        with db_manager.get_cursor(commit=False) as cursor:
+            if not _flight_exists(cursor, flight_id):
+                raise api_error(404, "FLIGHT_NOT_FOUND", "Uçuş bulunamadı.")
+
     return [
         Seat(
             id=s.id,

@@ -41,7 +41,7 @@ python -m backend
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Sunucu ve veritabanı bağlantısı |
 | `GET` | `/api/airports` | Havalimanları ve koordinatları |
-| `GET` | `/api/flights?from=IST&to=ESB&date=2026-11-15` | Uçuş arama (parametreler isteğe bağlı) |
+| `GET` | `/api/flights?from=IST&to=ESB&date=2026-11-15` | Uçuş arama (parametreler isteğe bağlı). İptal edilen uçuşlar da `status: "CANCELLED"` ile gelir; arayüz bunları "İptal" rozetiyle gösterir ve koltuk seçtirmez. |
 | `GET` | `/api/flights/{id}` | Tek uçuş |
 | `GET` | `/api/flights/{id}/seats` | Koltuk haritası |
 | `POST` | `/api/seats/{id}/lock` | Koltuğu 10 dk tut. Gövde: `{"session_id": "...", "expected_version": 3}` |
@@ -66,6 +66,13 @@ eklenene kadar `session_id` değerini istemci üretir (örn. `crypto.randomUUID(
 | 409 | Koltuk dolu / başkası tutuyor / sürüm değişmiş / uçuş iptal veya geçmiş / kilit sınırı |
 | 422 | Geçersiz parametre (örn. `from=ISTX`, aynı kalkış-varış, hatalı tarih) |
 | 503 | Veritabanına bağlanılamıyor veya sunucu yoğun |
+
+422 cevaplarında hangi alanların hatalı olduğu ayrıca `errors` listesinde verilir:
+
+```json
+{ "detail": { "code": "VALIDATION_ERROR", "message": "Geçersiz veya eksik alan: from",
+              "errors": [{ "field": "from", "message": "String should match pattern '^[A-Za-z]{3}$'" }] } }
+```
 
 ## Testler
 
