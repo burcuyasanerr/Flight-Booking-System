@@ -53,8 +53,8 @@ Kullanıcı kayıt olup giriş yapar, kalkış-varış havalimanı ve tarih seç
 | Koltuk haritası ve kilitleme API | ✅ | `backend/` |
 | PNR sorgulama ve PDF indirme API | ✅ | `backend/` |
 | Bilet satın alma API | ⏳ | |
-| Arayüz (arama, koltuk seçimi, ödeme) | ⏳ | |
-| Harita görselleştirme | ⏳ | |
+| Arayüz (arama, koltuk seçimi, ödeme) | 🚧 | Arama, koltuk seçimi/kilitleme ve PNR sorgusu API'ye bağlı; ödeme bekliyor |
+| Harita görselleştirme | ✅ | `frontend/` (havalimanları ve rotalar API'den) |
 | Koltuk kilitleme (concurrency) | ✅ | `concurrency/` |
 | PNR üretimi ve PDF bilet | ✅ | `ticket_pdf/` |
 
@@ -154,7 +154,15 @@ Ayrıntılar ve testler: **[backend/README.md](backend/README.md)**
 
 ### 4. Frontend'i çalıştır
 
-> 🚧 Frontend yazıldığında bu bölüm doldurulacak.
+Backend çalışırken, yeni bir terminalde:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Tarayıcıda http://localhost:5173 adresini aç. Veriler backend'den (`http://localhost:5000/api`) gelir; backend kapalıysa sayfada "Sunucuya ulaşılamadı" uyarısı çıkar.
 
 ---
 
