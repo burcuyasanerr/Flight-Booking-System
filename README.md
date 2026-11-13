@@ -49,8 +49,9 @@ Kullanıcı kayıt olup giriş yapar, kalkış-varış havalimanı ve tarih seç
 | :--- | :-: | :--- |
 | Veritabanı şeması ve örnek veriler | ✅ | `database/` |
 | Kullanıcı kayıt / giriş (backend) | ⏳ | |
-| Uçuş arama API | ⏳ | |
-| Koltuk haritası API | ⏳ | |
+| Uçuş arama API | ✅ | `backend/` |
+| Koltuk haritası ve kilitleme API | ✅ | `backend/` |
+| PNR sorgulama ve PDF indirme API | ✅ | `backend/` |
 | Bilet satın alma API | ⏳ | |
 | Arayüz (arama, koltuk seçimi, ödeme) | ⏳ | |
 | Harita görselleştirme | ⏳ | |
@@ -88,6 +89,7 @@ Flight-Booking-System/
 
 - [Git](https://git-scm.com/)
 - [PostgreSQL 17](https://www.postgresql.org/download/windows/) (pgAdmin 4 ile birlikte)
+- [Python 3.11+](https://www.python.org/downloads/) (backend için)
 
 ### 1. Projeyi indir
 
@@ -133,7 +135,22 @@ net start postgresql-x64-17
 
 ### 3. Backend'i çalıştır
 
-> 🚧 Backend yazıldığında bu bölüm doldurulacak.
+Proje kök klasöründe:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r backend/requirements.txt
+copy .env.example .env
+python -m backend
+```
+
+`.env` içindeki `DB_PASSWORD` değerini kendi PostgreSQL şifrenle değiştir. Sunucu açılınca:
+
+- API: http://localhost:5000/api
+- Swagger dokümantasyonu: http://localhost:5000/docs
+
+Ayrıntılar ve testler: **[backend/README.md](backend/README.md)**
 
 ### 4. Frontend'i çalıştır
 
@@ -184,8 +201,8 @@ erDiagram
 
 ## 🔌 API Uç Noktaları
 
-> 🚧 **Taslak.** Backend yazıldıkça kesinleşecek; değişiklik olursa önce burayı güncelleyin.
-> 🔒 = giriş yapmış olmak gerekir (`Authorization: Bearer <token>`).
+> ✅ çalışıyor · ⏳ henüz yapılmadı. Çalışan uç noktaları denemek için: http://localhost:5000/docs
+> 🔒 = giriş yapmış olmak gerekecek (`Authorization: Bearer <token>`). Giriş sistemi gelene kadar koltuk kilitleri `session_id` ile çalışır.
 
 ### Kimlik doğrulama
 
@@ -199,12 +216,12 @@ erDiagram
 
 | Metot | Adres | Açıklama | Durum |
 | :--- | :--- | :--- | :-: |
-| `GET` | `/api/airports` | Tüm havalimanları ve koordinatları | ⏳ |
-| `GET` | `/api/flights?from=IST&to=ESB&date=2026-11-15` | Uçuş arama | ⏳ |
-| `GET` | `/api/flights/:id` | Tek uçuş detayı | ⏳ |
-| `GET` | `/api/flights/:id/seats` | Koltuk haritası | ⏳ |
-| `POST` | `/api/seats/:id/lock` 🔒 | Koltuğu geçici olarak tut | ⏳ |
-| `DELETE` | `/api/seats/:id/lock` 🔒 | Koltuğu bırak | ⏳ |
+| `GET` | `/api/airports` | Tüm havalimanları ve koordinatları | ✅ |
+| `GET` | `/api/flights?from=IST&to=ESB&date=2026-11-15` | Uçuş arama | ✅ |
+| `GET` | `/api/flights/:id` | Tek uçuş detayı | ✅ |
+| `GET` | `/api/flights/:id/seats` | Koltuk haritası | ✅ |
+| `POST` | `/api/seats/:id/lock` 🔒 | Koltuğu geçici olarak tut | ✅ |
+| `DELETE` | `/api/seats/:id/lock` 🔒 | Koltuğu bırak | ✅ |
 
 ### Biletler
 
@@ -212,9 +229,9 @@ erDiagram
 | :--- | :--- | :--- | :-: |
 | `POST` | `/api/bookings` 🔒 | Bileti satın al, PNR üret | ⏳ |
 | `GET` | `/api/bookings/my` 🔒 | Biletlerim | ⏳ |
-| `GET` | `/api/bookings/:pnr` | PNR ile bilet sorgula | ⏳ |
-| `GET` | `/api/bookings/:pnr/pdf` | Bilet PDF'ini indir | ⏳ |
-| `PATCH` | `/api/bookings/:pnr/cancel` 🔒 | Bileti iptal et | ⏳ |
+| `GET` | `/api/bookings/pnr/:pnr` | PNR ile bilet sorgula | ✅ |
+| `GET` | `/api/bookings/pnr/:pnr/pdf` | Bilet PDF'ini indir | ✅ |
+| `PATCH` | `/api/bookings/pnr/:pnr/cancel` 🔒 | Bileti iptal et | ⏳ |
 
 ---
 
